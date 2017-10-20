@@ -56,19 +56,19 @@ function _epaybg_payment_response() {
   // debug
   //watchdog('commerce_epaybg', '$_SERVER @server', array('@server' => serialize($_SERVER)), WATCHDOG_NOTICE);
   //watchdog('commerce_epaybg', 'Response @data', array('@data' => serialize($_POST)), WATCHDOG_NOTICE);
-  
+
   $encoded  = $_POST['encoded'];
   $checksum = $_POST['checksum'];
-  
+
   $payment_method = commerce_payment_method_instance_load('commerce_epaybg|commerce_payment_commerce_epaybg');
   $hmac   = hmac('sha1', $encoded, $payment_method['settings']['epaybg_secret']);
-  
+
   // XXX Check if the received CHECKSUM is OK
   if ($hmac == $checksum) {
     $data = base64_decode($encoded);
     $lines_arr = explode("\n", $data);
     $status_resp = 'ERR';
-    
+
     foreach ($lines_arr as $line) {
       if (preg_match("/^INVOICE=(\d+):STATUS=(PAID|DENIED|EXPIRED)(:PAY_TIME=(\d+):STAN=(\d+):BCODE=([0-9a-zA-Z]+))?$/", $line, $regs)) {
         $invoice = $regs[1];
@@ -76,20 +76,20 @@ function _epaybg_payment_response() {
         $pay_date = '';
         $stan = '';
         $bcode = '';
-        
+
         if ($status == 'PAID') {
           // XXX if PAID
           $pay_date = $regs[4];
           // XXX if PAID
           $stan = $regs[5];
           // XXX if PAID
-          $bcode = $regs[6]; 
+          $bcode = $regs[6];
         }
-        
+
         if ($pay_date != '') {
           $pay_date = date('d.m.Y H:i:s', strtotime($pay_date));
         }
-  
+
         // XXX process $invoice, $status, $pay_date, $stan, $bcode here
         $order_id = substr($invoice, 10);
         $transaction_id = db_select('commerce_payment_transaction', 't')
@@ -97,7 +97,7 @@ function _epaybg_payment_response() {
           -> condition('order_id', $order_id, '=')
           -> execute()
           -> fetchField();
-      
+
         if ($status == 'PAID') {
           $transaction_status = COMMERCE_PAYMENT_STATUS_SUCCESS;
           $status_resp = 'OK';
@@ -111,15 +111,16 @@ function _epaybg_payment_response() {
           $status_resp = 'NO';
         }
       }
-      
+
       if ($status) {
         //change order status from pending
         $transaction = commerce_payment_transaction_load($transaction_id);
         $transaction -> status = $transaction_status;
+        $transaction -> payment_method = 'commerce_epaybg';
         $transaction -> message = t('epay.bg order status: @status.', array('@status' => $transaction -> status));
         $transaction -> data = serialize($data);
         commerce_payment_transaction_save($transaction);
-        
+
         db_merge('commerce_epaybg')
           ->key(array('transaction' => $invoice))
           ->fields(array(
@@ -129,7 +130,7 @@ function _epaybg_payment_response() {
             'bcode' => $bcode,
           ))
          ->execute();
-        
+
         watchdog('commerce_epaybg', 'Transaction @invoice, status @status', array('@invoice' => $invoice, '@status' => $status), WATCHDOG_NOTICE);
       }
     }
@@ -148,9 +149,9 @@ function _epaybg_payment_response() {
   }
   else {
     // XXX The description of error is REQUIRED
-    echo "ERR=Not valid CHECKSUM\n"; 
+    echo "ERR=Not valid CHECKSUM\n";
   }
-  
+
 }
 
 /**
@@ -181,7 +182,7 @@ function commerce_epaybg_commerce_payment_method_info() {
     'offsite' => TRUE,
     'offsite_autoredirect' => TRUE,
   );
-  
+
   $payment_methods['commerce_epaybg_world'] = array(
     'title' => t('EPay BG World (BORICA, Maestro, MasterCard, VISA)'),
     'description' => t('EPay BG Payment gateway - World service.'),
@@ -190,7 +191,7 @@ function commerce_epaybg_commerce_payment_method_info() {
     'offsite' => TRUE,
     'offsite_autoredirect' => TRUE,
   );
-  
+
   return $payment_methods;
 }
 
@@ -204,9 +205,9 @@ function commerce_epaybg_settings_form($settings = NULL) {
     'site_mode' => 'DEMO_MODE',
     'epaybg_invoice_prefix' => '1234567890',
   );
-  
+
   $form = array();
-  
+
   $form['site_mode'] = array(
     '#type' => 'select',
     '#title' => t('Site mode'),
@@ -235,7 +236,7 @@ function commerce_epaybg_settings_form($settings = NULL) {
     '#description' => t('10 digit prefix on Order ID, starting with 1.'),
     '#default_value' => $settings['epaybg_invoice_prefix'],
   );
-  
+
   return $form;
 }
 
@@ -254,7 +255,7 @@ function commerce_epaybg_submit_form($payment_method, $pane_values, $checkout_pa
   $pane_values += array(
     'name' => '',
   );
-  
+
   $form['epaybg_continue_checkout'] = array(
     '#markup' => t('Continue with checkout to complete payment via epay.bg.'),
   );
@@ -272,9 +273,9 @@ function commerce_epaybg_world_settings_form($settings = NULL) {
     'site_mode' => 'DEMO_MODE',
     'epaybg_world_invoice_prefix' => '1234567890',
   );
-  
+
   $form = array();
-  
+
   $form['site_mode'] = array(
     '#type' => 'select',
     '#title' => t('Site mode'),
@@ -303,7 +304,7 @@ function commerce_epaybg_world_settings_form($settings = NULL) {
     '#description' => t('10 digit prefix on Order ID.'),
     '#default_value' => $settings['epaybg_world_invoice_prefix'],
   );
-  
+
   return $form;
 }
 
@@ -322,7 +323,7 @@ function commerce_epaybg_world_submit_form($payment_method, $pane_values, $check
   $pane_values += array(
     'name' => '',
   );
-  
+
   $form['epaybg_continue_checkout'] = array(
     '#markup' => t('Continue with checkout to complete payment via epay.bg (World).'),
   );
@@ -335,7 +336,7 @@ function commerce_epaybg_world_submit_form($payment_method, $pane_values, $check
  */
 function commerce_epaybg_redirect_form($form, &$form_state, $order, $payment_method) {
   global $base_url;
-  
+
   $time = time();
   //merchant ID (secret)
   $secret = $payment_method['settings']['epaybg_secret'];
@@ -346,18 +347,18 @@ function commerce_epaybg_redirect_form($form, &$form_state, $order, $payment_met
   $exp_date = $time + (60*18);
   $exp_date = date('d.m.Y H:i:s', $exp_date);
   $description = t('Order @order_id at "@site_name"', array('@order_id' => $order -> order_id, '@site_name' => variable_get('site_name', '')));
-  
+
   $data = 'MIN=' . $min . "\n" .
     'INVOICE=' . $invoice . "\n" .
     'AMOUNT=' . $order_total . "\n" .
     'EXP_TIME=' . $exp_date . "\n" .
     'DESCR=' . $description . "\n";
-  
+
   $encoded = base64_encode($data);
   $checksum = hmac('sha1', $encoded, $secret);
 
   watchdog('commerce_epaybg', 'Data: @data', array('@data' => $data), WATCHDOG_NOTICE);
-  
+
   //set payment transaction record
   $transaction = commerce_payment_transaction_new('commerce_epaybg', $order -> order_id);
   $transaction -> instance_id = $order -> data['payment_method'];
@@ -367,7 +368,7 @@ function commerce_epaybg_redirect_form($form, &$form_state, $order, $payment_met
   $transaction -> status = COMMERCE_PAYMENT_STATUS_PENDING;
   $transaction -> message = t('epay.bg order status: @status.', array('@status' => $transaction -> status));
   commerce_payment_transaction_save($transaction);
-  
+
   //insert order payment data
   db_insert('commerce_epaybg')
     ->fields(array(
@@ -375,11 +376,11 @@ function commerce_epaybg_redirect_form($form, &$form_state, $order, $payment_met
       'transaction' => $payment_method['settings']['epaybg_invoice_prefix'] . $order -> order_id,
     ))
     ->execute();
-  
+
   $ep_urls = unserialize(variable_get('commerce_epaybg_urls', ''));
   //set form url from settings
   $form['#action'] = $ep_urls[$payment_method['settings']['site_mode']];
-  
+
   $form['PAGE'] = array(
     '#type' => 'hidden',
     '#value' => 'paylogin',
@@ -404,7 +405,7 @@ function commerce_epaybg_redirect_form($form, &$form_state, $order, $payment_met
     '#type' => 'submit',
     '#value' => t('Proceed to epay.bg'),
   );
-  
+
   return $form;
 }
 
@@ -413,7 +414,7 @@ function commerce_epaybg_redirect_form($form, &$form_state, $order, $payment_met
  */
 function commerce_epaybg_world_redirect_form($form, &$form_state, $order, $payment_method) {
   global $base_url;
-  
+
   $time = time();
   //merchant ID (secret)
   $secret = $payment_method['settings']['epaybg_world_secret'];
@@ -424,16 +425,16 @@ function commerce_epaybg_world_redirect_form($form, &$form_state, $order, $payme
   $exp_date = $time + (60*60*24*7);
   $exp_date = date('d.m.Y h:i:s', $exp_date);
   $description = t('Order @order_id at "@site_name"', array('@order_id' => $order -> order_id, '@site_name' => variable_get('site_name', '')));
-  
+
   $data = 'MIN=' . $min . "\n" .
     'INVOICE=' . $invoice . "\n" .
     'AMOUNT=' . $order_total . "\n" .
     'EXP_TIME=' . $exp_date . "\n" .
     'DESCR=' . $description . "\n";
-  
+
   $encoded = base64_encode($data);
   $checksum = hmac('sha1', $encoded, $secret);
-  
+
   //set payment transaction record
   $transaction = commerce_payment_transaction_new('commerce_epaybg_world', $order -> order_id);
   $transaction -> instance_id = $order -> data['payment_method'];
@@ -443,7 +444,7 @@ function commerce_epaybg_world_redirect_form($form, &$form_state, $order, $payme
   $transaction -> status = COMMERCE_PAYMENT_STATUS_PENDING;
   $transaction -> message = t('EPay BG (World) order status: @status.', array('@status' => @$transaction -> status));
   commerce_payment_transaction_save($transaction);
-  
+
   //insert order payment data
   db_insert('commerce_epaybg')
     ->fields(array(
@@ -451,11 +452,11 @@ function commerce_epaybg_world_redirect_form($form, &$form_state, $order, $payme
       'transaction' => $payment_method['settings']['epaybg_world_invoice_prefix'] . $order -> order_id
     ))
     ->execute();
-  
+
   $ep_urls = unserialize(variable_get('commerce_epaybg_urls', ''));
   //set form url from settings
   $form['#action'] = $ep_urls[$payment_method['settings']['site_mode']];
-  
+
   $form['PAGE'] = array(
     '#type' => 'hidden',
     '#value' => 'credit_paydirect',
@@ -480,6 +481,6 @@ function commerce_epaybg_world_redirect_form($form, &$form_state, $order, $payme
     '#type' => 'submit',
     '#value' => t('Proceed to epay.bg (World)'),
   );
-  
+
   return $form;
 }
